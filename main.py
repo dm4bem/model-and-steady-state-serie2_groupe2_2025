@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 
 import dm4bem
 
-
+controller = False
+neglect_air_glass_capacity = False
+imposed_time_step = False
+Δt = 498    # s, imposed time step
 
 l = 5               #longueur
 L = 4               #largeur de la pièce
@@ -52,17 +55,17 @@ Cmur = densite_beton * specific_heat_beton * epaisseur_beton * Smur
 Ciso = densite_iso * specific_heat_iso * epaisseur_iso * Smur
 Cair = densite_air * specific_heat_air * Va
 
-C0 = Cmur/3
-C1 = Cmur/3
-C2 = Cmur/3
-C3 = Ciso/2
-C4 = Ciso/2
-C5 = Cair
 
-C_values = [C0, C1, C2, C3, C4, C5]
-C = np.diag(C_values)
-pd.DataFrame(C, index=θ)
-np.set_printoptions(precision=2, suppress=True)
+
+Cvalues = np.zeros(6)
+
+Cvalues[1] = Cmur
+Cvalues[3] = Ciso
+Cvalues[5] = Cair
+
+
+C = np.diag(Cvalues)
+
 print("C =")
 print(C)
 
@@ -79,20 +82,20 @@ nq = 10     # number of flow branches
 q = [f'q{i}' for i in range(10)]
 
 A = np.zeros([10, 6])       # n° of branches X n° of nodes
-A[0, 0] = 1                 # branch 0: -> node 0
-A[1, 0], A[1, 1] = -1, 1    # branch 1: node 0 -> node 1
-A[2, 1], A[2, 2] = -1, 1    # branch 2: node 1 -> node 2
-A[3, 2], A[3, 3] = -1, 1    # branch 3: node 2 -> node 3
-A[4, 3], A[4, 4] = -1, 1   # branch 4: node 3 -> node 4
+A[0, 0] = 1                
+A[1, 0], A[1, 1] = -1, 1    
+A[2, 1], A[2, 2] = -1, 1   
+A[3, 2], A[3, 3] = -1, 1    
+A[4, 3], A[4, 4] = -1, 1   
 A[5,4] = -1
-A[5, 5] = 1    # branch 5: node 4 -> node 5
-A[6, 5] = 1    # branch 6: node 4 -> node 6
-A[7, 5] =1    # branch 7: node 5 -> node 6
-A[8, 5] = 1                 # branch 8: -> node 7
-A[9, 5]= 1    # branch 9: node 5 -> node 7
+A[5, 5] = 1    
+A[6, 5] = 1   
+A[7, 5] =1    
+A[8, 5] = 1                 
+A[9, 5]= 1    
 print("A=")
 print(A)
-pd.DataFrame(A, index=q, columns=θ)
+
 
 G0 = hO*Stot
 
@@ -113,24 +116,39 @@ G8 = densite_air * specific_heat_air * Va_dot
 G9 = Kp
 
 
+Gvalues = np.array(np.hstack([G0, G1, G2, G3, G4, G5, G6, G7, G8, G9]))
 
-G_values = [G0, G1, G2, G3, G4, G5, G6, G7, G8, G9]
-G = np.diag(G_values)
+G = np.diag(Gvalues)
 
-np.set_printoptions(precision=2, suppress=True)
-pd.DataFrame(G, index=q)
 print("G =")
 print(G)
 
-# Input vectors
-b = np.zeros(10)  # temperatures
-f = np.zeros(6)  # flow rates
 
-f = pd.Series([0, 0, 0, 0, 0, 0],
-              index=θ)
+
+
+
+Qa = 1200
+
+ε_wLW = 0.85    # long wave emmisivity: wall surface (concrete)
+ε_gLW = 0.90    # long wave emmisivity: glass pyrex
+α_wSW = 0.25    # short wave absortivity: white smooth surface
+α_gSW = 0.38    # short wave absortivity: reflective blue glass
+τ_gSW = 0.30    # short wave transmitance: reflective blue glass
+
+E = 50 #total irradiance receivend by the wall or window
+
+Φo = α_wSW*E*Smur
+Φi = τ_gSW*α_gSW*E*Smur
+
+
+f = [Φo,0,0,0,Φo,Φi] # flow rates
+
 
 T0 = 10
 Tisp = 20
+
+# Input vectors
+b = np.zeros(10)  # temperatures
 
 b[0] = T0
 b[6] = T0
@@ -138,35 +156,36 @@ b[7] = T0
 b[8] = T0
 b[9] = Tisp
 
-b = pd.Series(['To', 0, 0, 0, 0, 0,'To' , 'To', 'To', 'Tisp'],
-              index=q)
+print("b =")
+print(b)
 
-y = np.zeros(6)         # nodes
-y[[5]] = 1              # nodes (temperatures) of interest
-pd.DataFrame(y, index=θ)
+print("f =")
+print(f)
+
+y = [0,0,0,0,0,0]         # nodes
+y[5] = 1              # nodes (temperatures) of interest
+
+print("y =")
+print(y)
 
 
+θ = np.linalg.inv(A.T @ G @ A) @ (A.T @ G @ b + f)
 
-θ_steady_To = np.linalg.inv(A.T @ G @ A) @ (A.T @ G @ b + f)
-np.set_printoptions(precision=3)
-print('When To = 1°C, the temperatures in steady-state are:', θ_steady_To, '°C')
-print(f'The indoor temperature is: {θ_steady_To[-1]:.3f} °C')
+
+print(f'θ = {np.around(θ, 2)} °C')
+print(f'The indoor temperature is: {θ[-1]:.3f} °C')
 print("---------------------------------------------")
+# temperature nodes
+nθ = 6     # number of temperature nodes
+θ = [f'θ{i}' for i in range(6)]
 
-bss = np.zeros(10)        # temperature sources b for steady state
-bss[[0, 6,7,8]] = T0      # outdoor temperature
-bss[[9]] = Tisp            # indoor set-point temperature
+# flow-rate branches
+nq = 10     # number of flow branches
+q = [f'q{i}' for i in range(10)]
 
-fss = np.zeros(6)         # flow-rate sources f for steady state
-fss[[5]] = 1000
-
-θssQ = np.linalg.inv(A.T @ G @ A) @ (A.T @ G @ bss + fss)
-print(f'θssQ = {np.around(θssQ, 2)} °C') #temperature en steady state par DAE avec flux Qa = 1000W
-
-"""
 A = pd.DataFrame(A, index=q, columns=θ)
-G = pd.Series(G, index=q)
-C = pd.Series(C, index=θ)
+G = pd.Series(Gvalues, index=q)
+C = pd.Series(Cvalues, index=θ)
 b = pd.Series(b, index=q)
 f = pd.Series(f, index=θ)
 y = pd.Series(y, index=θ)
@@ -178,89 +197,143 @@ TC = {"A": A,
       "f": f,
       "y": y}
 
-
-"""
-
+#Steady-state from differential algebraic equations (DAE)
 
 
+[As, Bs, Cs, Ds, us] = dm4bem.tc2ss(TC)
 
 
+print("As =\n", As)
+print("\nBs =\n", Bs)
+print("\nCs =\n", Cs)
+print("\nDs =\n", Ds)
+print("\nus =\n", us)
+
+# Input vectors
+bss = np.zeros(10)  # temperatures
+
+bss[0] = T0
+bss[6] = T0
+bss[7] = T0
+bss[8] = T0
+bss[9] = Tisp
+
+fss = np.zeros(6)         # flow-rate sources f for steady state
 
 
+A = TC['A']
+G = TC['G']
+diag_G = pd.DataFrame(np.diag(G), index=G.index, columns=G.index)
+
+θss = np.linalg.inv(A.T @ diag_G @ A) @ (A.T @ diag_G @ bss + fss)
 
 
+print(f'θss = {np.around(θss, 2)} °C')
+
+#Steady state (DAE) avec flux
+
+bssQ = np.zeros(10)  
+
+bssQ[0] = T0
+bssQ[6] = T0
+bssQ[7] = T0
+bssQ[8] = T0
+bssQ[9] = Tisp       # temperature sources b for steady state
+
+fssQ = [Φo,0,0,0,Φo,Φi]       # flow-rate sources f for steady state
 
 
+θssQ = np.linalg.inv(A.T @ diag_G @ A) @ (A.T @ diag_G @ bssQ + fssQ)
+print(f'θssQ = {np.around(θssQ, 2)} °C')
 
 
+#Steady-state from state-space representation
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-print("---------------------------------------------")
-"""
-# State matrix
-As = -np.linalg.inv(C) @ A.T @ G @ A
-# pd.set_option('precision', 1)
-pd.DataFrame(As, index=θ, columns=θ)
-print("As=",As)
-print("---------------------------------------------")
-
-# Input matrix
-Bs = np.linalg.inv(C) @ np.block([A.T @ G, np.eye(nθ)])
-pd.DataFrame(Bs, index=θ, columns=q + θ)
-Bs = Bs[:, [0, -1]]
-pd.DataFrame(Bs, columns=['To', 'Qh'])
-np.set_printoptions(precision=8)  
-print("Bs=",Bs)
-print("---------------------------------------------")
-
-# Output matrix
-Cs = np.zeros((1, nθ))
-# output: last temperature node
-Cs[:, -1] = 1
-print("Cs=",Cs)
-print("---------------------------------------------")
-
-# Feedthrough (or feedforward) matrix
-Ds = np.zeros(Bs.shape[1])
-print("Ds=",Ds)
-print("---------------------------------------------")
-
-bT = np.array([T0, T0, T0, T0, Tisp])     # [To, To, To,To, Tisp]
+bT = np.array([T0, T0, T0, T0, Tisp])     # [To, To, To, T0, Tisp]
 fQ = np.array([0, 0, 0])         # [Φo, Φi, Qa]
 uss = np.hstack([bT, fQ])           # input vector for state space
 print(f'uss = {uss}')
 
-inv_As = pd.DataFrame(np.linalg.inv(As))
+
+inv_As = pd.DataFrame(np.linalg.inv(As),
+                      columns=As.index, index=As.index)
 yss = (-Cs @ inv_As @ Bs + Ds) @ uss
 
 yss = float(yss.values[0])
 print(f'yss = {yss:.2f} °C')
 
-print("---------------------------------------------")"""
+print(f'Error between DAE and state-space: {abs(θss[5] - yss):.2e} °C')
+
+bTQ = np.array([T0, T0, T0, T0, Tisp])     # [To, To, To, T0, Tisp]
+fQQ = np.array([0, 0, 0])         # [Φo, Φi, Qa]
+ussQ = np.hstack([bTQ, fQQ])           # input vector for state space
+print(f'ussQ = {ussQ}')
 
 
+
+yssQ = (-Cs @ inv_As @ Bs + Ds) @ ussQ
+
+yssQ = float(yssQ.values[0])
+print(f'yssQ = {yssQ:.2f} °C')
+
+print(f'Error between DAE and state-space: {abs(θssQ[5] - yssQ):.2e} °C')
+
+print("---------------------------------------------")
 
 
 #   PARTIE 2 : Simulate step response
 
+# Eigenvalues analysis
+λ = np.linalg.eig(As)[0]        # eigenvalues of matrix As
+
+print(λ)
+
+# time step
+Δtmax = 2 * min(-1. / λ)    # max time step for stability of Euler explicit
+dm4bem.print_rounded_time('Δtmax', Δtmax)
+
+if imposed_time_step:
+    dt = Δt
+else:
+    dt = dm4bem.round_time(Δtmax)
+dm4bem.print_rounded_time('dt', dt)
+
+print(dt)
+
+"""
+if dt < 10:
+    raise ValueError("Time step is too small. Stopping the script.")
+
+"""
 
 
+# settling time
+t_settle = 4 * max(-1 / λ)
+dm4bem.print_rounded_time('t_settle', t_settle)
+
+# duration: next multiple of 3600 s that is larger than t_settle
+duration = np.ceil(t_settle / 3600) * 3600
+dm4bem.print_rounded_time('duration', duration)
+
+
+
+# Create input_data_set
+# ---------------------
+# time vector
+n = int(np.floor(duration / dt))    # number of time steps
+
+# DateTimeIndex starting at "00:00:00" with a time step of dt
+time = pd.date_range(start="2000-01-01 00:00:00",
+                           periods=n, freq=f"{int(dt)}s")
+
+To = 10 * np.ones(n)        # outdoor temperature
+Ti_sp = 20 * np.ones(n)     # indoor temperature set point
+Φa = 0 * np.ones(n)         # solar radiation absorbed by the glass
+Qa = Φo = Φi = Φa           # auxiliary heat sources and solar radiation
+
+data = {'To': To, 'Ti_sp': Ti_sp, 'Φo': Φo, 'Φi': Φi, 'Qa': Qa, 'Φa': Φa}
+input_data_set = pd.DataFrame(data, index=time)
+
+# inputs in time from input_data_set
+#u = dm4bem.inputs_in_time(us, input_data_set)
 
